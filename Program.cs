@@ -25,33 +25,67 @@ namespace StravaTools
 
             PrintSessionInformation(session);
 
+            // Raw coordinates from fit file
             var rawCoordinates = ExtractRawCoordinates(session);
 
+            // Coordinates shifted to origin
             var shiftedCoordinates = ShiftCoordinatesToOrigin(rawCoordinates);
+
+            // Coordinates scaled to fit image
             var scaledCoordinates = ScaleCoordinatesToImageSize(shiftedCoordinates);
 
-            var cutTop = scaledCoordinates.Select(coordinate => coordinate.Y).Min() > 1;
+            // Route orientation
+            var imageIsHorizontal = scaledCoordinates.Select(coordinate => coordinate.Y).Min() > 1;
+
 
             using var image = new Image<Rgba32>(ImageWidth, ImageHeight);
-            PathBuilder pathBuilder = new PathBuilder();
-            pathBuilder.SetOrigin(new PointF(0, 0));
-            pathBuilder.AddLines(scaledCoordinates);
+            DrawImage(scaledCoordinates, image, imageIsHorizontal);
+            SaveImage(session, image);
+        }
 
-            IPath path = pathBuilder.Build();
+        private static void DrawImage(List<PointF> scaledCoordinates, Image<Rgba32> image, bool imageIsHorizontal)
+        {
+            var path = BuildPath(scaledCoordinates);
 
-            image.Mutate<Rgba32>(ctx => ctx
-                .Fill(Color.White) // white background image
-                .Draw(Color.Gray, 3, path)); // draw the path so we can see what the text is supposed to be following
-            if (cutTop)
+            image.Mutate(ctx => ctx
+                .Fill(Color.White)
+                .Draw(Color.Gray, 5, path));
+
+            if (imageIsHorizontal)
             {
                 var minY = scaledCoordinates.Select(coordinate => coordinate.Y).Min();
-                image.Mutate(x => x.Crop(new Rectangle(0, (int)minY, 1000, 1000 - (int)minY)));
+                image.Mutate(x => x.Crop(new Rectangle(0, (int)minY, ImageWidth, ImageHeight - (int)minY)));
             }
             else
             {
-                //image.Mutate(x => x.Crop(new Rectangle((int)minXScaled, 0, 1000 - (int)minXScaled, 1000)));
+                var minX = scaledCoordinates.Select(coordinate => coordinate.X).Min();
+                image.Mutate(x => x.Crop(new Rectangle((int)minX, 0, ImageWidth - (int)minX, ImageHeight)));
             }
-            image.Save("C:/code/InnovationDay/StravaTools/strava_tools.png");
+        }
+
+        private static IPath BuildPath(List<PointF> scaledCoordinates)
+        {
+            var pathBuilder = new PathBuilder();
+            pathBuilder.SetOrigin(new PointF(0, 0));
+            pathBuilder.AddLines(scaledCoordinates);
+            IPath path = pathBuilder.Build();
+            return path;
+        }
+
+        private static void SaveImage(SessionMessages session, Image<Rgba32> image)
+        {
+            var sport = session.Session.GetSport().ToString() ?? "unknown";
+            var distance = (int?)session.Session.GetTotalDistance() ?? 0;
+            var date = session.Session.GetStartTime().GetDateTime().ToString("yyyyMMddHH");
+
+            var outputDir = @"C:/code/InnovationDay/StravaTools/images";
+            // If directory does not exist, create it
+            if (!Directory.Exists(outputDir))
+            {
+                Directory.CreateDirectory(outputDir);
+            }
+
+            image.Save($"{outputDir}/{sport}_{distance}_{date}.png");
         }
 
         private static List<PointF> ScaleCoordinatesToImageSize(List<PointF> shiftedCoordinates)
